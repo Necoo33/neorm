@@ -1,5 +1,5 @@
 <?php
-class MysqlQueryBuilder {
+class Neorm {
     public $query = "";
     public $table = "";
     public $connection;
