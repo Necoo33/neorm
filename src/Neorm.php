@@ -240,7 +240,7 @@ class Neorm {
             if($ordering === "RAND()" && (strpos($this->query, "ASC") || strpos($this->query, "DESC"))){
                 throw new Exception("You cannot order rows both random and asc or desc.");
             } else {
-                $this->query.", $column $ordering";
+                $this->query = $this->query.", $column $ordering";
             }
         } else {
             if($ordering === "RAND()") {
