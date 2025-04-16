@@ -55,8 +55,16 @@ class Neorm {
             throw new Exception("You cannot start to build new query with same instance if you don't finish current one");
         } 
 
-        for($i = 0; $i < count($fields); $i++) {
-            if(!$this->sanitization($fields[$i])) throw new Exception("Dangerous user input detected.");
+        switch(gettype($fields)) {
+            case "string":
+                if(!$this->sanitization($fields)) throw new Exception("Dangerous user input detected.");
+                break;
+            case "array":
+                for($i = 0; $i < count($fields); $i++) {
+                    if(!$this->sanitization($fields[$i])) throw new Exception("Dangerous user input detected.");
+                }
+
+                break;
         }
 
         switch (gettype($fields)) {
@@ -376,8 +384,15 @@ class Neorm {
 
     /* bu kodun doğru çalışması için  */
     public function insert(array $insertObject) {
-        for($i = 0; $i < count($insertObject); $i++) {
-            if(!$this->sanitization($insertObject[$i])) throw new Exception("Dangerous user input detected.");
+        $keys = array_keys($insertObject);
+        $values = array_values($insertObject);
+
+        for($i = 0; $i < count($keys); $i++) {
+            if(!$this->sanitization($keys[$i])) throw new Exception("Dangerous user input detected.");
+        }
+
+        for($i = 0; $i < count($values); $i++) {
+            if(!$this->sanitization($values[$i])) throw new Exception("Dangerous user input detected.");
         }
 
         if(!$this->restartable()) {
@@ -473,6 +488,7 @@ class Neorm {
         $column = $this->connection->real_escape_string($column);
 
         switch(gettype($value)){
+            case "string":
             case "String":
                 $value = $this->connection->real_escape_string($value);
 
@@ -483,6 +499,7 @@ class Neorm {
                 }
 
                 break;
+            case "integer":
             case "Integer":
                 $value = intval($this->connection->real_escape_string($value));
                 
@@ -493,6 +510,7 @@ class Neorm {
                 }
 
                 break;
+            case "float":
             case "Float":
                 $value = floatval($this->connection->real_escape_string($value));
                 
@@ -503,6 +521,7 @@ class Neorm {
                 }
 
                 break;
+            case "boolean":
             case "Boolean":
                 $value = $this->connection->real_escape_string($value);
 
@@ -520,6 +539,7 @@ class Neorm {
 
                 break;
             case "NULL":
+            case "null":
                 if(!strpos($this->query, "SET")) {
                     $this->query = $this->query." SET $column = NULL";   
                 } else {
@@ -600,7 +620,11 @@ class Neorm {
     }
 
     public function result() {
-        return mysqli_fetch_all($this->recentAction, MYSQLI_ASSOC);
+        if(strpos($this->query, "INSERT") === 0){
+            return mysqli_insert_id($this->connection);
+        } else {
+            return mysqli_fetch_all($this->recentAction, MYSQLI_ASSOC);
+        }
     }
 
     public function close(){
