@@ -113,7 +113,7 @@ class Neorm {
     public function or(string $column, string $mark, $value){
         $column = $this->connection->real_escape_string($column);
         $mark = $this->connection->real_escape_string($mark);
-
+        
         switch(gettype($value)) {
             case "string": 
                 $value = $this->connection->real_escape_string($value);
@@ -130,6 +130,8 @@ class Neorm {
                 }
             case "double":
                 $value = floatval($this->connection->real_escape_string($value));
+                break;
+            case "NULL":
                 break;
             default:
                 throw new Exception("Invalid input for value input");
@@ -166,6 +168,8 @@ class Neorm {
             case "double":
                 $value = floatval($this->connection->real_escape_string($value));
                 break;
+            case "NULL":
+                break;
             default:
                 throw new Exception("Invalid input for value input");
                 break;
@@ -173,6 +177,19 @@ class Neorm {
 
         if(gettype($value) === "string"){
             $this->query = $this->query." AND $column $mark '$value'";
+        } else if(gettype($value) === "string") {
+            switch($mark) {
+                case "=":
+                    $this->query = $this->query." AND $column IS NULL";
+                    break;
+                case "!=":
+                case "<>":
+                    $this->query = $this->query." AND $column IS NOT NULL";
+                    break;
+                default:
+                    $this->query = $this->query." AND $column IS NOT NULL";
+                    break;
+            }
         } else {
             $this->query = $this->query." AND $column $mark $value";
         }
@@ -212,7 +229,7 @@ class Neorm {
             case "rand":
             case "RAND":
             case "random":
-            case "RANDOM":    
+            case "RANDOM":
                 $this->query = $this->query." ORDER BY RAND()";
                 return $this;
         }
@@ -248,6 +265,40 @@ class Neorm {
             } else {
                 $this->query = $this->query." ORDER BY $column $ordering";
             }
+        }
+
+        return $this;
+    }
+
+    public function orderByField(string $column, array $fields) {
+        if(strpos($this->query, "ORDER BY")) {
+            $fieldsString = "";
+
+            for($i = 0; $i < count($fields); $i++) {
+                if($i === 0) {
+                    $field = $fields[$i];
+                    $fieldsString = $fieldsString."$field";
+                } else {
+                    $field = $fields[$i];
+                    $fieldsString = $fieldsString.", $field";
+                }
+            }
+
+            $this->query = $this->query.", FIELD($fieldsString)";
+        } else {
+            $fieldsString = "";
+
+            for($i = 0; $i < count($fields); $i++) {
+                if($i === 0) {
+                    $field = $fields[$i];
+                    $fieldsString = $fieldsString."$field";
+                } else {
+                    $field = $fields[$i];
+                    $fieldsString = $fieldsString.", $field";
+                }
+            }
+            
+            $this->query = $this->query." ORDER BY FIELD($fieldsString)";
         }
 
         return $this;
@@ -385,9 +436,9 @@ class Neorm {
                 }
             default:
                 if(!strpos($this->query, "SET")) {
-                    $this->query = $this->query." SET $column = '$value'";   
+                    $this->query = $this->query." SET $column = $value";   
                 } else {
-                    $this->query = $this->query.", $column = '$value'";
+                    $this->query = $this->query.", $column = $value";
                 }
         }
 
