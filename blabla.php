@@ -1,3 +1,5 @@
 <?php 
-    echo gettype(gettype(null))
+    $blabla = [1, 2, 3];
+
+    echo gettype($blabla)
 ?>

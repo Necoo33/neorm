@@ -4,14 +4,49 @@ class Neorm {
     public $table = "";
     public $connection;
     public $recentAction;
+    public $dangerousItems = [];
 
-    public function __construct($host, $name, $pass, $db)
+    public function __construct($host, $name, $pass, $db, $port = 3306)
     {
-        $this->connection = mysqli_connect($host, $name, $pass, $db, 3306);
+        $this->connection = mysqli_connect($host, $name, $pass, $db, $port);
+
+        $this->load_dangerous_strings();
 
         if(!$this->connection) {
             throw new Exception("cannot connect to database");
         }
+    }
+
+    function load_dangerous_strings() {
+        $this->dangerousItems =  [";", "; drop", "admin' #", "admin'/*", "; union", "or 1 = 1",
+        "or 1 = 1#", "or 1 = 1/*", "or true = true", "or false = false", "or '1' = '1'", "or '1' = '1'#",
+        "or '1' = '1'/*", "; sleep(", "--", "drop table", "drop schema", "select if", "union select",
+        "union all", "exec", "master..", "masters..", "information_schema", "load_file", "alter user"];
+    }
+
+    function sanitization($item) {
+        switch(gettype($item)){
+            case "array":
+                for($i = 0; $i < count($this->dangerousItems); $i++) {
+                    for($p = 0; $p < count($item); $p++) {
+                        if(strpos($item[$p], $this->dangerousItems[$i])) {
+                            return false; 
+                        }
+                    }
+                }
+
+                break;
+            default:
+                for($i = 0; $i < count($this->dangerousItems); $i++) {
+                    if(strpos($item, $this->dangerousItems[$i])) {
+                        return false; 
+                    }
+                }
+
+                break;
+        }
+
+        return true;
     }
 
     // seçilecek sütunları bir normal array olarak ekle.
@@ -19,6 +54,10 @@ class Neorm {
         if(!$this->restartable()) {
             throw new Exception("You cannot start to build new query with same instance if you don't finish current one");
         } 
+
+        for($i = 0; $i < count($fields); $i++) {
+            if(!$this->sanitization($fields[$i])) throw new Exception("Dangerous user input detected.");
+        }
 
         switch (gettype($fields)) {
             case "string":
@@ -49,7 +88,9 @@ class Neorm {
         return $this;
     }
 
-    public function limit(string $limit) {
+    public function limit(string|int $limit) {
+        if(!$this->sanitization($limit)) throw new Exception("Dangerous user input detected.");
+
         $limit = intval($this->connection->real_escape_string($limit));
         $this->query = $this->query." LIMIT ".$limit;
 
@@ -69,6 +110,8 @@ class Neorm {
     }
 
     public function offset(int $offset) {
+        if(!$this->sanitization($offset)) throw new Exception("Dangerous user input detected.");
+
         $offset = intval($this->connection->real_escape_string($offset));
         $this->query = $this->query." OFFSET ".$offset;
 
@@ -76,6 +119,10 @@ class Neorm {
     }
 
     public function where(string $column, string $mark, $value) {
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+        if(!$this->sanitization($mark)) throw new Exception("Dangerous user input detected.");
+        if(!$this->sanitization($value)) throw new Exception("Dangerous user input detected.");
+
         $column = $this->connection->real_escape_string($column);
         $mark = $this->connection->real_escape_string($mark);
 
@@ -111,6 +158,10 @@ class Neorm {
     }
 
     public function or(string $column, string $mark, $value){
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+        if(!$this->sanitization($mark)) throw new Exception("Dangerous user input detected.");
+        if(!$this->sanitization($value)) throw new Exception("Dangerous user input detected.");
+
         $column = $this->connection->real_escape_string($column);
         $mark = $this->connection->real_escape_string($mark);
         
@@ -148,6 +199,10 @@ class Neorm {
     }
 
     public function and(string $column, string $mark, $value){
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+        if(!$this->sanitization($mark)) throw new Exception("Dangerous user input detected.");
+        if(!$this->sanitization($value)) throw new Exception("Dangerous user input detected.");
+
         $column = $this->connection->real_escape_string($column);
         $mark = $this->connection->real_escape_string($mark);
 
@@ -198,6 +253,12 @@ class Neorm {
     }
 
     public function like(array $columns, string $operand) {
+        for($i = 0; $i < count($columns); $i++) {
+            if(!$this->sanitization($columns[$i])) throw new Exception("Dangerous user input detected.");
+        }
+
+        if(!$this->sanitization($operand)) throw new Exception("Dangerous user input detected.");
+
         if(strpos($this->query, "SELECT") !== 0 &&
            strpos($this->query, "DELETE") !== 0 &&
            strpos($this->query, "UPDATE") !== 0){
@@ -222,7 +283,10 @@ class Neorm {
 
     // bu fonksiyonlardan birden fazla kullanacaksan ard arda
     // kullanmayı unutma:
-    public function orderBy(string $column = null, string $ordering = null){
+    public function orderBy(?string $column = null, ?string $ordering = null){
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+        if(!$this->sanitization($ordering)) throw new Exception("Dangerous user input detected.");
+
         switch($column){
             case null:
             case "":
@@ -271,6 +335,12 @@ class Neorm {
     }
 
     public function orderByField(string $column, array $fields) {
+        for($i = 0; $i < count($fields); $i++) {
+            if(!$this->sanitization($fields[$i])) throw new Exception("Dangerous user input detected.");
+        }
+
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+
         if(strpos($this->query, "ORDER BY")) {
             $fieldsString = "";
 
@@ -306,6 +376,10 @@ class Neorm {
 
     /* bu kodun doğru çalışması için  */
     public function insert(array $insertObject) {
+        for($i = 0; $i < count($insertObject); $i++) {
+            if(!$this->sanitization($insertObject[$i])) throw new Exception("Dangerous user input detected.");
+        }
+
         if(!$this->restartable()) {
             throw new Exception("You cannot start to build new query with same instance if you don't finish current one");
         } 
@@ -389,6 +463,9 @@ class Neorm {
     }
 
     public function set($column, $value){
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+        if(!$this->sanitization($value)) throw new Exception("Dangerous user input detected.");
+
         if(strpos($this->query, "UPDATE") !== 0){
             throw new Exception("Error: Set operator only can be used on Update Queries.");
         }
@@ -404,6 +481,8 @@ class Neorm {
                 } else {
                     $this->query = $this->query.", $column = '$value'";
                 }
+
+                break;
             case "Integer":
                 $value = intval($this->connection->real_escape_string($value));
                 
@@ -412,6 +491,8 @@ class Neorm {
                 } else {
                     $this->query = $this->query.", $column = $value";
                 }
+
+                break;
             case "Float":
                 $value = floatval($this->connection->real_escape_string($value));
                 
@@ -420,6 +501,8 @@ class Neorm {
                 } else {
                     $this->query = $this->query.", $column = $value";
                 }
+
+                break;
             case "Boolean":
                 $value = $this->connection->real_escape_string($value);
 
@@ -434,6 +517,16 @@ class Neorm {
                 } else {
                     $this->query = $this->query.", $column = $value";
                 }
+
+                break;
+            case "NULL":
+                if(!strpos($this->query, "SET")) {
+                    $this->query = $this->query." SET $column = NULL";   
+                } else {
+                    $this->query = $this->query.", $column = NULL";
+                }
+
+                break;
             default:
                 if(!strpos($this->query, "SET")) {
                     $this->query = $this->query." SET $column = $value";   
@@ -452,6 +545,8 @@ class Neorm {
     }
 
     public function table(string $table) {
+        if(!$this->sanitization($table)) throw new Exception("Dangerous user input detected.");
+
         if(strpos($this->query, "SELECT") !== 0 && 
            strpos($this->query, "INSERT") !== 0 && 
            strpos($this->query, "DELETE") !== 0 && 
@@ -471,6 +566,8 @@ class Neorm {
     }
 
     public function count($table) {
+        if(!$this->sanitization($table)) throw new Exception("Dangerous user input detected.");
+
         $this->query = "SELECT COUNT(*) AS count FROM $table";
 
         return $this;
