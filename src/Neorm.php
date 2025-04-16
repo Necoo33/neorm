@@ -284,7 +284,7 @@ class Neorm {
                 }
             }
 
-            $this->query = $this->query.", FIELD($fieldsString)";
+            $this->query = $this->query.", FIELD($column, $fieldsString)";
         } else {
             $fieldsString = "";
 
@@ -298,7 +298,7 @@ class Neorm {
                 }
             }
             
-            $this->query = $this->query." ORDER BY FIELD($fieldsString)";
+            $this->query = $this->query." ORDER BY FIELD($column, $fieldsString)";
         }
 
         return $this;
