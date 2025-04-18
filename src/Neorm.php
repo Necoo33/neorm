@@ -165,6 +165,158 @@ class Neorm {
         return $this;
     }
 
+    public function in(string $mode, string $column, array $values) {
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+
+        $keys = array_keys($values);
+        $values = array_values($values);
+
+        for($i = 0; $i < count($keys); $i++) {
+            if(!$this->sanitization($keys[$i])) throw new Exception("Dangerous user input detected.");
+        }
+
+        for($i = 0; $i < count($values); $i++) {
+            if(!$this->sanitization($values[$i])) throw new Exception("Dangerous user input detected.");
+        }
+
+        $column = $this->connection->real_escape_string($column);
+
+        $valuesString = "";
+
+        for($i = 0; $i < count($values); $i++) {
+            $typeOfValue = gettype($values[$i]); 
+
+            if($typeOfValue === "string") {
+                $values[$i] = $this->connection->real_escape_string($values[$i]);
+
+                if($i === 0) {
+                    $valuesString = $valuesString."'$values[$i]'";
+                } else {
+                    $valuesString = $valuesString.", '$values[$i]'";
+                }
+            } else if($typeOfValue === "integer") {
+                $values[$i] = intval($this->connection->real_escape_string($values[$i]));
+
+                if($i === 0) {
+                    $valuesString = $valuesString."$values[$i]";
+                } else {
+                    $valuesString = $valuesString.", $values[$i]";
+                }
+            } else if($typeOfValue === "boolean") {
+                $evaluation = $this->connection->real_escape_string($values[$i]);
+                if($evaluation === "true") {
+                    $values[$i] = true;
+                } else {
+                    $values[$i] = false;
+                }
+
+                if($i === 0) {
+                    $valuesString = $valuesString."$values[$i]";
+                } else {
+                    $valuesString = $valuesString.", $values[$i]";
+                }
+            } else if($typeOfValue === "double") {
+                $values[$i] = floatval($this->connection->real_escape_string($values[$i]));
+
+                if($i === 0) {
+                    $valuesString = $valuesString."$values[$i]";
+                } else {
+                    $valuesString = $valuesString.", $values[$i]";
+                }
+            }
+        }
+
+        switch($mode) {
+            case "where":
+                $this->query = $this->query." WHERE $column IN ($valuesString)";
+                break;
+            case "and":
+                $this->query = $this->query." AND $column IN ($valuesString)";
+                break;
+            case "or":
+                $this->query = $this->query." OR $column IN ($valuesString)";
+                break;
+        }
+
+        return $this;
+    }
+
+    public function notIn(string $mode, string $column, array $values) {
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+
+        $keys = array_keys($values);
+        $values = array_values($values);
+
+        for($i = 0; $i < count($keys); $i++) {
+            if(!$this->sanitization($keys[$i])) throw new Exception("Dangerous user input detected.");
+        }
+
+        for($i = 0; $i < count($values); $i++) {
+            if(!$this->sanitization($values[$i])) throw new Exception("Dangerous user input detected.");
+        }
+
+        $column = $this->connection->real_escape_string($column);
+
+        $valuesString = "";
+
+        for($i = 0; $i < count($values); $i++) {
+            $typeOfValue = gettype($values[$i]); 
+
+            if($typeOfValue === "string") {
+                $values[$i] = $this->connection->real_escape_string($values[$i]);
+
+                if($i === 0) {
+                    $valuesString = $valuesString."'$values[$i]'";
+                } else {
+                    $valuesString = $valuesString.", '$values[$i]'";
+                }
+            } else if($typeOfValue === "integer") {
+                $values[$i] = intval($this->connection->real_escape_string($values[$i]));
+
+                if($i === 0) {
+                    $valuesString = $valuesString."$values[$i]";
+                } else {
+                    $valuesString = $valuesString.", $values[$i]";
+                }
+            } else if($typeOfValue === "boolean") {
+                $evaluation = $this->connection->real_escape_string($values[$i]);
+                if($evaluation === "true") {
+                    $values[$i] = true;
+                } else {
+                    $values[$i] = false;
+                }
+
+                if($i === 0) {
+                    $valuesString = $valuesString."$values[$i]";
+                } else {
+                    $valuesString = $valuesString.", $values[$i]";
+                }
+            } else if($typeOfValue === "double") {
+                $values[$i] = floatval($this->connection->real_escape_string($values[$i]));
+
+                if($i === 0) {
+                    $valuesString = $valuesString."$values[$i]";
+                } else {
+                    $valuesString = $valuesString.", $values[$i]";
+                }
+            }
+        }
+
+        switch($mode) {
+            case "where":
+                $this->query = $this->query." WHERE $column NOT IN ($valuesString)";
+                break;
+            case "and":
+                $this->query = $this->query." AND $column NOT IN ($valuesString)";
+                break;
+            case "or":
+                $this->query = $this->query." OR $column NOT IN ($valuesString)";
+                break;
+        }
+
+        return $this;
+    }
+
     public function or(string $column, string $mark, $value){
         if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
         if(!$this->sanitization($mark)) throw new Exception("Dangerous user input detected.");
@@ -355,10 +507,10 @@ class Neorm {
             for($i = 0; $i < count($fields); $i++) {
                 if($i === 0) {
                     $field = $fields[$i];
-                    $fieldsString = $fieldsString."$field";
+                    $fieldsString = $fieldsString."'$field'";
                 } else {
                     $field = $fields[$i];
-                    $fieldsString = $fieldsString.", $field";
+                    $fieldsString = $fieldsString.", '$field'";
                 }
             }
 
@@ -369,15 +521,23 @@ class Neorm {
             for($i = 0; $i < count($fields); $i++) {
                 if($i === 0) {
                     $field = $fields[$i];
-                    $fieldsString = $fieldsString."$field";
+                    $fieldsString = $fieldsString."'$field'";
                 } else {
                     $field = $fields[$i];
-                    $fieldsString = $fieldsString.", $field";
+                    $fieldsString = $fieldsString.", '$field'";
                 }
             }
             
             $this->query = $this->query." ORDER BY FIELD($column, $fieldsString)";
         }
+
+        return $this;
+    }
+
+    public function groupBy(string $column) {
+        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
+
+        $this->query = $this->query." GROUP BY $column";
 
         return $this;
     }
@@ -619,6 +779,12 @@ class Neorm {
         return $this;
     }
 
+    public function appendCustom(string $customQuery) {
+        $this->query = $this->query." ".$customQuery;
+
+        return $this;
+    }
+
     public function result() {
         if(strpos($this->query, "INSERT") === 0){
             return mysqli_insert_id($this->connection);
@@ -633,5 +799,4 @@ class Neorm {
         return $this;
     }
 }
-
     ?>
