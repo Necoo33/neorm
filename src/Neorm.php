@@ -1,4 +1,7 @@
 <?php
+
+namespace Necdet\Neorm;
+
 class Neorm {
     public $query = "";
     public $params = [];
