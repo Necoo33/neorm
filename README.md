@@ -2,9 +2,9 @@
 
 This is a very powerfull orm for mysql that gives you the full control of your queries.
 
-It currently supports `SELECT`, `INSERT`, `DELETE` and `UPDATE` queries.
+It currently supports `SELECT`, `INSERT`, `DELETE`, `UPDATE`, `COUNT` queries.
 
-It supports this operators: `WHERE`, `OR`, `AND`, `LIMIT`, `OFFSET`, `LIKE`, `ORDER BY`.
+It supports this operators: `WHERE`, `OR`, `AND`, `LIMIT`, `OFFSET`, `LIKE`, `ORDER BY`, `GROUP BY`, `JOIN`, `IN`.
 
 it also includes sanitization, make multiple queries with same instance etc.
 

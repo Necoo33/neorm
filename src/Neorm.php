@@ -1,52 +1,21 @@
 <?php
 class Neorm {
     public $query = "";
+    public $params = [];
     public $table = "";
     public $connection;
     public $recentAction;
-    public $dangerousItems = [];
 
     public function __construct($host, $name, $pass, $db, $port = 3306)
     {
-        $this->connection = mysqli_connect($host, $name, $pass, $db, $port);
+        //$this->connection = mysqli_connect($host, $name, $pass, $db, $port);
 
-        $this->load_dangerous_strings();
+        $this->connection = new PDO("mysql:host=$host;dbname=$db;port=$port", $name, $pass);
+        $this->connection->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
 
         if(!$this->connection) {
             throw new Exception("cannot connect to database");
         }
-    }
-
-    function load_dangerous_strings() {
-        $this->dangerousItems =  [";", "; drop", "admin' #", "admin'/*", "; union", "or 1 = 1",
-        "or 1 = 1#", "or 1 = 1/*", "or true = true", "or false = false", "or '1' = '1'", "or '1' = '1'#",
-        "or '1' = '1'/*", "; sleep(", "--", "drop table", "drop schema", "select if", "union select",
-        "union all", "exec", "master..", "masters..", "information_schema", "load_file", "alter user"];
-    }
-
-    function sanitization($item) {
-        switch(gettype($item)){
-            case "array":
-                for($i = 0; $i < count($this->dangerousItems); $i++) {
-                    for($p = 0; $p < count($item); $p++) {
-                        if(strpos($item[$p], $this->dangerousItems[$i])) {
-                            return false; 
-                        }
-                    }
-                }
-
-                break;
-            default:
-                for($i = 0; $i < count($this->dangerousItems); $i++) {
-                    if(strpos($item, $this->dangerousItems[$i])) {
-                        return false; 
-                    }
-                }
-
-                break;
-        }
-
-        return true;
     }
 
     // seçilecek sütunları bir normal array olarak ekle.
@@ -54,18 +23,6 @@ class Neorm {
         if(!$this->restartable()) {
             throw new Exception("You cannot start to build new query with same instance if you don't finish current one");
         } 
-
-        switch(gettype($fields)) {
-            case "string":
-                if(!$this->sanitization($fields)) throw new Exception("Dangerous user input detected.");
-                break;
-            case "array":
-                for($i = 0; $i < count($fields); $i++) {
-                    if(!$this->sanitization($fields[$i])) throw new Exception("Dangerous user input detected.");
-                }
-
-                break;
-        }
 
         switch (gettype($fields)) {
             case "string":
@@ -81,7 +38,7 @@ class Neorm {
                 $getCount = count($fields);
 
                 for($i = 0; $i < $getCount; $i++){
-                    $sanitizedField = $this->connection->real_escape_string($fields[$i]);
+                    $sanitizedField = $fields[$i];
 
                     if($i + 1 === $getCount) {
                         $this->query = $this->query."$sanitizedField ";  
@@ -97,10 +54,15 @@ class Neorm {
     }
 
     public function limit(string|int $limit) {
-        if(!$this->sanitization($limit)) throw new Exception("Dangerous user input detected.");
+        if(is_numeric($limit)) {
+            $limit = intval($limit);
+        } else {
+            throw new Exception("Limit parameter has to be an integer");
+        }
 
-        $limit = intval($this->connection->real_escape_string($limit));
-        $this->query = $this->query." LIMIT ".$limit;
+        $this->query = $this->query." LIMIT ?";
+
+        $this->params[] = $limit;
 
         return $this;
     }
@@ -117,123 +79,142 @@ class Neorm {
         }
     }
 
-    public function offset(int $offset) {
-        if(!$this->sanitization($offset)) throw new Exception("Dangerous user input detected.");
+    public function offset(string|int $offset) {
+        if(is_numeric($offset)) {
+            $offset = intval($offset);
+        } else {
+            throw new Exception("Offset parameter has to be an integer");
+        }
 
-        $offset = intval($this->connection->real_escape_string($offset));
-        $this->query = $this->query." OFFSET ".$offset;
+        $this->query = $this->query." OFFSET ?";
+
+        $this->params[] = $offset;
 
         return $this;
     }
 
     public function where(string $column, string $mark, $value) {
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-        if(!$this->sanitization($mark)) throw new Exception("Dangerous user input detected.");
-        if(!$this->sanitization($value)) throw new Exception("Dangerous user input detected.");
-
-        $column = $this->connection->real_escape_string($column);
-        $mark = $this->connection->real_escape_string($mark);
-
         switch(gettype($value)) {
             case "string": 
-                $value = $this->connection->real_escape_string($value);
-                break;
             case "integer":
-                $value = intval($this->connection->real_escape_string($value));
+            case "double":
+            case "float":
                 break;
             case "boolean":
-                $evaluation = $this->connection->real_escape_string($value);
-                if($evaluation === "true") {
+                if($value === "true") {
                     $value = true;
                 } else {
                     $value = false;
                 }
-            case "double":
-                $value = floatval($this->connection->real_escape_string($value));
                 break;
             default:
                 throw new Exception("Invalid input for value input");
                 break;
         }
 
-        if(gettype($value) === "string"){
-            $this->query = $this->query." WHERE $column $mark '$value'";
+        if(gettype($value) === "NULL" || strtolower($value) === "null"){
+            switch($mark) {
+                case "=":
+                    $this->query = $this->query." WHERE $column IS NULL";
+                    break;
+                case "!=":
+                    $this->query = $this->query." WHERE $column IS NOT NULL";
+                    break;
+            }
         } else {
-            $this->query = $this->query." WHERE $column $mark $value";
+            $this->query = $this->query." WHERE $column $mark ?";
+            $this->params[] = $value;
+        }
+
+        return $this;
+    }
+
+    public function join(string $type, string $table, ?string $left = null, ?string $mark = null, ?string $right = null) {
+        $joinType = "";
+
+        switch($type) {
+            case "inner":
+            case "INNER":
+            case "Inner":
+                $joinType = "INNER";
+                break;
+            case "left":
+            case "LEFT":
+            case "Left":
+                $joinType = "LEFT";
+                break;
+            case "right":
+            case "RIGHT":
+            case "Right":
+                $joinType = "RIGHT";
+                break;
+            case "cross":
+            case "CROSS":
+            case "Cross":
+                $joinType = "CROSS";
+                break;
+            case "natural":
+            case "NATURAL":
+            case "Natural":
+                $joinType = "NATURAL";
+                break;
+            default:
+                $joinType = "INNER";
+                break;
+        }
+
+        switch($joinType) {
+            case "INNER":
+            case "LEFT":
+            case "RIGHT":
+                if($left === null || $mark === null || $right === null) {
+                    throw new Exception("Left, mark and right parameters are required for $joinType join query.");
+                }
+
+                $this->query = $this->query." $joinType JOIN $table ON $left $mark $right";
+                break;
+            case "CROSS":
+            case "NATURAL":
+                $this->query = $this->query." $joinType JOIN $table";
+                break;
+            default:
+                throw new Exception("Invalid join type");
+                break;
         }
 
         return $this;
     }
 
     public function in(string $mode, string $column, array $values) {
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-
         $keys = array_keys($values);
         $values = array_values($values);
-
-        for($i = 0; $i < count($keys); $i++) {
-            if(!$this->sanitization($keys[$i])) throw new Exception("Dangerous user input detected.");
-        }
-
-        for($i = 0; $i < count($values); $i++) {
-            if(!$this->sanitization($values[$i])) throw new Exception("Dangerous user input detected.");
-        }
-
-        $column = $this->connection->real_escape_string($column);
 
         $valuesString = "";
 
         for($i = 0; $i < count($values); $i++) {
-            $typeOfValue = gettype($values[$i]); 
-
-            if($typeOfValue === "string") {
-                $values[$i] = $this->connection->real_escape_string($values[$i]);
-
-                if($i === 0) {
-                    $valuesString = $valuesString."'$values[$i]'";
-                } else {
-                    $valuesString = $valuesString.", '$values[$i]'";
-                }
-            } else if($typeOfValue === "integer") {
-                $values[$i] = intval($this->connection->real_escape_string($values[$i]));
-
-                if($i === 0) {
-                    $valuesString = $valuesString."$values[$i]";
-                } else {
-                    $valuesString = $valuesString.", $values[$i]";
-                }
-            } else if($typeOfValue === "boolean") {
-                $evaluation = $this->connection->real_escape_string($values[$i]);
-                if($evaluation === "true") {
-                    $values[$i] = true;
-                } else {
-                    $values[$i] = false;
-                }
-
-                if($i === 0) {
-                    $valuesString = $valuesString."$values[$i]";
-                } else {
-                    $valuesString = $valuesString.", $values[$i]";
-                }
-            } else if($typeOfValue === "double") {
-                $values[$i] = floatval($this->connection->real_escape_string($values[$i]));
-
-                if($i === 0) {
-                    $valuesString = $valuesString."$values[$i]";
-                } else {
-                    $valuesString = $valuesString.", $values[$i]";
-                }
+            if($i === 0) {
+                $valuesString = $valuesString."?";
+                $this->params[] = $values[$i];
+            } else {
+                $valuesString = $valuesString.", ?";
+                $this->params[] = $values[$i];
             }
         }
 
         switch($mode) {
-            case "where":
+            case "where":    
+            case "WHERE":
+            case "Where":
                 $this->query = $this->query." WHERE $column IN ($valuesString)";
                 break;
             case "and":
+            case "AND":
+            case "And":
                 $this->query = $this->query." AND $column IN ($valuesString)";
                 break;
             case "or":
+            case "OR":
+            case "Or":
                 $this->query = $this->query." OR $column IN ($valuesString)";
                 break;
         }
@@ -242,63 +223,15 @@ class Neorm {
     }
 
     public function notIn(string $mode, string $column, array $values) {
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-
-        $keys = array_keys($values);
-        $values = array_values($values);
-
-        for($i = 0; $i < count($keys); $i++) {
-            if(!$this->sanitization($keys[$i])) throw new Exception("Dangerous user input detected.");
-        }
-
-        for($i = 0; $i < count($values); $i++) {
-            if(!$this->sanitization($values[$i])) throw new Exception("Dangerous user input detected.");
-        }
-
-        $column = $this->connection->real_escape_string($column);
-
         $valuesString = "";
 
         for($i = 0; $i < count($values); $i++) {
-            $typeOfValue = gettype($values[$i]); 
-
-            if($typeOfValue === "string") {
-                $values[$i] = $this->connection->real_escape_string($values[$i]);
-
-                if($i === 0) {
-                    $valuesString = $valuesString."'$values[$i]'";
-                } else {
-                    $valuesString = $valuesString.", '$values[$i]'";
-                }
-            } else if($typeOfValue === "integer") {
-                $values[$i] = intval($this->connection->real_escape_string($values[$i]));
-
-                if($i === 0) {
-                    $valuesString = $valuesString."$values[$i]";
-                } else {
-                    $valuesString = $valuesString.", $values[$i]";
-                }
-            } else if($typeOfValue === "boolean") {
-                $evaluation = $this->connection->real_escape_string($values[$i]);
-                if($evaluation === "true") {
-                    $values[$i] = true;
-                } else {
-                    $values[$i] = false;
-                }
-
-                if($i === 0) {
-                    $valuesString = $valuesString."$values[$i]";
-                } else {
-                    $valuesString = $valuesString.", $values[$i]";
-                }
-            } else if($typeOfValue === "double") {
-                $values[$i] = floatval($this->connection->real_escape_string($values[$i]));
-
-                if($i === 0) {
-                    $valuesString = $valuesString."$values[$i]";
-                } else {
-                    $valuesString = $valuesString.", $values[$i]";
-                }
+            if($i === 0) {
+                $valuesString = $valuesString."?";
+                $this->params[] = $values[$i];
+            } else {
+                $valuesString = $valuesString.", ?";
+                $this->params[] = $values[$i];
             }
         }
 
@@ -317,82 +250,64 @@ class Neorm {
         return $this;
     }
 
-    public function or(string $column, string $mark, $value){
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-        if(!$this->sanitization($mark)) throw new Exception("Dangerous user input detected.");
-        if(!$this->sanitization($value)) throw new Exception("Dangerous user input detected.");
-
-        $column = $this->connection->real_escape_string($column);
-        $mark = $this->connection->real_escape_string($mark);
-        
+    public function or(string $column, string $mark, $value) {
         switch(gettype($value)) {
             case "string": 
-                $value = $this->connection->real_escape_string($value);
-                break;
             case "integer":
-                $value = intval($this->connection->real_escape_string($value));
+            case "double":
+            case "float":
                 break;
             case "boolean":
-                $evaluation = $this->connection->real_escape_string($value);
-                if($evaluation === "true") {
+                if($value === "true") {
                     $value = true;
                 } else {
                     $value = false;
                 }
-            case "double":
-                $value = floatval($this->connection->real_escape_string($value));
-                break;
-            case "NULL":
                 break;
             default:
                 throw new Exception("Invalid input for value input");
                 break;
         }
 
-        if(gettype($value) === "string"){
-            $this->query = $this->query." OR $column $mark '$value'";
+        if(gettype($value) === "NULL" || strtolower($value) === "null"){
+            switch($mark) {
+                case "=":
+                    $this->query = $this->query." OR $column IS NULL";
+                    break;
+                case "!=":
+                case "<>":
+                    $this->query = $this->query." OR $column IS NOT NULL";
+                    break;
+            }
         } else {
-            $this->query = $this->query." OR $column $mark $value";
+            $this->query = $this->query." OR $column $mark ?";
+            $this->params[] = $value;
         }
 
         return $this;
     }
 
     public function and(string $column, string $mark, $value){
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-        if(!$this->sanitization($mark)) throw new Exception("Dangerous user input detected.");
-        if(!$this->sanitization($value)) throw new Exception("Dangerous user input detected.");
-
-        $column = $this->connection->real_escape_string($column);
-        $mark = $this->connection->real_escape_string($mark);
-
         switch(gettype($value)) {
             case "string": 
-                $value = $this->connection->real_escape_string($value);
-                break;
             case "integer":
-                $value = intval($this->connection->real_escape_string($value));
+            case "double":
+            case "float":
+            case "NULL":
                 break;
             case "boolean":
-                $evaluation = $this->connection->real_escape_string($value);
-                if($evaluation === "true") {
+                if($value === "true") {
                     $value = true;
                 } else {
                     $value = false;
                 }
-            case "double":
-                $value = floatval($this->connection->real_escape_string($value));
-                break;
-            case "NULL":
                 break;
             default:
                 throw new Exception("Invalid input for value input");
                 break;
         }
 
-        if(gettype($value) === "string"){
-            $this->query = $this->query." AND $column $mark '$value'";
-        } else if(gettype($value) === "string") {
+        if(gettype($value) === "NULL" || strtolower($value) === "null"){
             switch($mark) {
                 case "=":
                     $this->query = $this->query." AND $column IS NULL";
@@ -401,30 +316,21 @@ class Neorm {
                 case "<>":
                     $this->query = $this->query." AND $column IS NOT NULL";
                     break;
-                default:
-                    $this->query = $this->query." AND $column IS NOT NULL";
-                    break;
             }
         } else {
-            $this->query = $this->query." AND $column $mark $value";
+            $this->query = $this->query." AND $column $mark ?";
+            $this->params[] = $value;
         }
 
         return $this;
     }
 
     public function like(array $columns, string $operand) {
-        for($i = 0; $i < count($columns); $i++) {
-            if(!$this->sanitization($columns[$i])) throw new Exception("Dangerous user input detected.");
-        }
-
-        if(!$this->sanitization($operand)) throw new Exception("Dangerous user input detected.");
-
         if(strpos($this->query, "SELECT") !== 0 &&
            strpos($this->query, "DELETE") !== 0 &&
            strpos($this->query, "UPDATE") !== 0){
             throw new Exception("LIKE kıstasları 'SELECT', 'DELETE' veya 'UPDATE' query'lerine tatbik edilmelidir.");
         }
-        $operand = $this->connection->real_escape_string($operand);
 
         for($i = 0; $i < count($columns); $i ++) {
             if(gettype($columns[$i]) !== "string"){
@@ -432,9 +338,11 @@ class Neorm {
             }
             
             if($i === 0) {
-                $this->query = $this->query." WHERE $columns[$i] LIKE '%$operand%'";
+                $this->query = $this->query." WHERE $columns[$i] LIKE ?";
+                $this->params[] = "%$operand%";
             } else {
-                $this->query = $this->query." OR $columns[$i] LIKE '%$operand%'";
+                $this->query = $this->query." OR $columns[$i] LIKE ?";
+                $this->params[] = "%$operand%";
             }
         }
 
@@ -444,9 +352,6 @@ class Neorm {
     // bu fonksiyonlardan birden fazla kullanacaksan ard arda
     // kullanmayı unutma:
     public function orderBy(?string $column = null, ?string $ordering = null){
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-        if(!$this->sanitization($ordering)) throw new Exception("Dangerous user input detected.");
-
         switch($column){
             case null:
             case "":
@@ -459,8 +364,9 @@ class Neorm {
         }
 
         switch($ordering) {
-            case "asc": $ordering = strtoupper($ordering);
+            case "asc": 
             case "desc":
+                $ordering = strtoupper($ordering);
                 break;
             case "ASC": $ordering;
             case "DESC": $ordering;
@@ -495,13 +401,7 @@ class Neorm {
     }
 
     public function orderByField(string $column, array $fields) {
-        for($i = 0; $i < count($fields); $i++) {
-            if(!$this->sanitization($fields[$i])) throw new Exception("Dangerous user input detected.");
-        }
-
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-
-        if(strpos($this->query, "ORDER BY")) {
+        if(strpos($this->query, "ORDER BY") !== false) {
             $fieldsString = "";
 
             for($i = 0; $i < count($fields); $i++) {
@@ -535,8 +435,6 @@ class Neorm {
     }
 
     public function groupBy(string $column) {
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-
         $this->query = $this->query." GROUP BY $column";
 
         return $this;
@@ -544,21 +442,10 @@ class Neorm {
 
     /* bu kodun doğru çalışması için  */
     public function insert(array $insertObject) {
-        $keys = array_keys($insertObject);
-        $values = array_values($insertObject);
-
-        for($i = 0; $i < count($keys); $i++) {
-            if(!$this->sanitization($keys[$i])) throw new Exception("Dangerous user input detected.");
-        }
-
-        for($i = 0; $i < count($values); $i++) {
-            if(!$this->sanitization($values[$i])) throw new Exception("Dangerous user input detected.");
-        }
-
         if(!$this->restartable()) {
             throw new Exception("You cannot start to build new query with same instance if you don't finish current one");
         } 
-        
+
         $keys = array_keys($insertObject);
         $values = array_values($insertObject);
 
@@ -578,53 +465,14 @@ class Neorm {
         $this->query = $this->query." VALUES (";
 
         for($p = 0; $p < $valuesLength; $p++){
-            switch(gettype($values[$p])) {
-                case "string": 
-                    $value = $this->connection->real_escape_string($values[$p]);
+            $value = $values[$p];
 
-                    if($p + 1 === $valuesLength) {
-                        $this->query = $this->query."'$value');";
-                    } else {
-                        $this->query = $this->query."'$value', ";
-                    }
-
-                    break;
-                case "integer":
-                    $value = intval($this->connection->real_escape_string($values[$p]));
-
-                    if($p + 1 === $valuesLength) {
-                        $this->query = $this->query."$value)";
-                    } else {
-                        $this->query = $this->query."$value, ";
-                    }
-                    break;
-                case "boolean":
-                    $evaluation = $this->connection->real_escape_string($values[$p]);
-
-                    if($evaluation === "true") {
-                        $value = true;
-                    } else {
-                        $value = false;
-                    }
-
-                    if($p + 1 === $valuesLength) {
-                        $this->query = $this->query."$value)";
-                    } else {
-                        $this->query = $this->query."$value, ";
-                    }
-                case "double":
-                    $value = floatval($this->connection->real_escape_string($values[$p]));
-
-                    if($p + 1 === $valuesLength) {
-                        $this->query = $this->query."$value)";
-                    } else {
-                        $this->query = $this->query."$value, ";
-                    }
-
-                    break;
-                default:
-                    throw new Exception("Invalid input for value input");
-                    break;
+            if($p + 1 === $valuesLength) {
+                $this->query = $this->query."?);";
+                $this->params[] = $value;
+            } else {
+                $this->query = $this->query."?, ";
+                $this->params[] = $value;
             }
         }
 
@@ -638,81 +486,16 @@ class Neorm {
     }
 
     public function set($column, $value){
-        if(!$this->sanitization($column)) throw new Exception("Dangerous user input detected.");
-        if(!$this->sanitization($value)) throw new Exception("Dangerous user input detected.");
-
         if(strpos($this->query, "UPDATE") !== 0){
             throw new Exception("Error: Set operator only can be used on Update Queries.");
         }
 
-        $column = $this->connection->real_escape_string($column);
-
-        switch(gettype($value)){
-            case "string":
-            case "String":
-                $value = $this->connection->real_escape_string($value);
-
-                if(!strpos($this->query, "SET")) {
-                    $this->query = $this->query." SET $column = '$value'";   
-                } else {
-                    $this->query = $this->query.", $column = '$value'";
-                }
-
-                break;
-            case "integer":
-            case "Integer":
-                $value = intval($this->connection->real_escape_string($value));
-                
-                if(!strpos($this->query, "SET")) {
-                    $this->query = $this->query." SET $column = $value";   
-                } else {
-                    $this->query = $this->query.", $column = $value";
-                }
-
-                break;
-            case "float":
-            case "Float":
-                $value = floatval($this->connection->real_escape_string($value));
-                
-                if(!strpos($this->query, "SET")) {
-                    $this->query = $this->query." SET $column = $value";   
-                } else {
-                    $this->query = $this->query.", $column = $value";
-                }
-
-                break;
-            case "boolean":
-            case "Boolean":
-                $value = $this->connection->real_escape_string($value);
-
-                if($value === "true"){
-                    $value = true;
-                } else {
-                    $value = false;
-                }
-
-                if(!strpos($this->query, "SET")) {
-                    $this->query = $this->query." SET $column = $value";   
-                } else {
-                    $this->query = $this->query.", $column = $value";
-                }
-
-                break;
-            case "NULL":
-            case "null":
-                if(!strpos($this->query, "SET")) {
-                    $this->query = $this->query." SET $column = NULL";   
-                } else {
-                    $this->query = $this->query.", $column = NULL";
-                }
-
-                break;
-            default:
-                if(!strpos($this->query, "SET")) {
-                    $this->query = $this->query." SET $column = $value";   
-                } else {
-                    $this->query = $this->query.", $column = $value";
-                }
+        if(!strpos($this->query, "SET")) {
+            $this->query = $this->query." SET $column = ?";   
+            $this->params[] = $value;
+        } else {
+            $this->query = $this->query.", $column = ?";
+            $this->params[] = $value;
         }
 
         return $this;
@@ -725,8 +508,6 @@ class Neorm {
     }
 
     public function table(string $table) {
-        if(!$this->sanitization($table)) throw new Exception("Dangerous user input detected.");
-
         if(strpos($this->query, "SELECT") !== 0 && 
            strpos($this->query, "INSERT") !== 0 && 
            strpos($this->query, "DELETE") !== 0 && 
@@ -746,8 +527,6 @@ class Neorm {
     }
 
     public function count($table) {
-        if(!$this->sanitization($table)) throw new Exception("Dangerous user input detected.");
-
         $this->query = "SELECT COUNT(*) AS count FROM $table";
 
         return $this;
@@ -773,29 +552,56 @@ class Neorm {
            strpos($this->query, "UPDATE") !== 0) {
                 throw new Exception("You cannot call .execute() function before actually build your query.");
         } else {
-            $this->recentAction = mysqli_query($this->connection, $this->query);
+            $stmt = $this->connection->prepare($this->query);
+
+            $stmt->execute($this->params);
+            $this->recentAction = $stmt;
+
+            $this->params = [];
+        
+            return $this;
         }
 
         return $this;
     }
 
-    public function appendCustom(string $customQuery) {
+    public function appendCustom(string $customQuery, array $params = []) {
         $this->query = $this->query." ".$customQuery;
+
+        if(count($params) > 0) {
+            $this->params = array_merge($this->params, $params);
+        }
+
+        return $this;
+    }
+
+    public function completeCustom(string $customQuery, array $params = []) {
+        $this->query = $customQuery;
+
+        if(count($params) > 0) {
+            $this->params = array_merge($this->params, $params);
+        }
 
         return $this;
     }
 
     public function result() {
         if(strpos($this->query, "INSERT") === 0){
-            return mysqli_insert_id($this->connection);
-        } else {
-            return mysqli_fetch_all($this->recentAction, MYSQLI_ASSOC);
+            return $this->connection->lastInsertId();
         }
+
+        if(strpos($this->query, "SELECT") === 0){
+            return $this->recentAction->fetchAll(PDO::FETCH_ASSOC);
+        }
+
+        if(strpos($this->query, "DELETE") === 0 || strpos($this->query, "UPDATE") === 0){
+            return $this->recentAction->rowCount();
+        }
+
+        throw new Exception("Invalid query");
     }
 
     public function close(){
-        mysqli_close($this->connection);
-
         return $this;
     }
 }
