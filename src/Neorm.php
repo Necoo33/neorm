@@ -115,17 +115,23 @@ class Neorm {
                 break;
         }
 
+        $newChunk = "";
+
+        if(!str_ends_with($this->query, "(")){
+            $newChunk = " WHERE ";
+        }
+
         if(gettype($value) === "NULL" || strtolower($value) === "null"){
             switch($mark) {
                 case "=":
-                    $this->query = $this->query." WHERE $column IS NULL";
+                    $this->query = $this->query . $newChunk . "$column IS NULL";
                     break;
                 case "!=":
-                    $this->query = $this->query." WHERE $column IS NOT NULL";
+                    $this->query = $this->query . $newChunk . "$column IS NOT NULL";
                     break;
             }
         } else {
-            $this->query = $this->query." WHERE $column $mark ?";
+            $this->query = $this->query . $newChunk . "$column $mark ?";
             $this->params[] = $value;
         }
 
@@ -272,18 +278,24 @@ class Neorm {
                 break;
         }
 
+        $newChunk = "";
+
+        if(!str_ends_with($this->query, "(")){
+            $newChunk = " OR ";
+        }
+
         if(gettype($value) === "NULL" || strtolower($value) === "null"){
             switch($mark) {
                 case "=":
-                    $this->query = $this->query." OR $column IS NULL";
+                    $this->query = $this->query . $newChunk . "$column IS NULL";
                     break;
                 case "!=":
                 case "<>":
-                    $this->query = $this->query." OR $column IS NOT NULL";
+                    $this->query = $this->query . $newChunk . "$column IS NOT NULL";
                     break;
             }
         } else {
-            $this->query = $this->query." OR $column $mark ?";
+            $this->query = $this->query . $newChunk . "$column $mark ?";
             $this->params[] = $value;
         }
 
@@ -310,20 +322,54 @@ class Neorm {
                 break;
         }
 
+        $newChunk = "";
+
+        if(!str_ends_with($this->query, "(")){
+            $newChunk = " AND ";
+        }
+
         if(gettype($value) === "NULL" || strtolower($value) === "null"){
             switch($mark) {
                 case "=":
-                    $this->query = $this->query." AND $column IS NULL";
+                    $this->query = $this->query . $newChunk . "$column IS NULL";
                     break;
                 case "!=":
                 case "<>":
-                    $this->query = $this->query." AND $column IS NOT NULL";
+                    $this->query = $this->query . $newChunk . "$column IS NOT NULL";
                     break;
             }
         } else {
-            $this->query = $this->query." AND $column $mark ?";
+            $this->query = $this->query . $newChunk . "$column $mark ?";
             $this->params[] = $value;
         }
+
+        return $this;
+    }
+
+    public function open_parenthesis(string $type){
+        $upper = trim(strtoupper($type));
+
+        switch($upper) {
+            case "WHERE":
+            case "AND":
+            case "OR":
+                break;
+            default:
+                throw new Exception("Parantez tipi olarak, şimdilik sadece 'WHERE', 'AND' ve 'OR' anahtar kelimeleri desteklenmektedir.");
+                break;
+        }
+
+        $this->query = $this->query . " $upper (";
+
+        return $this;
+    }
+
+    public function close_parenthesis(){
+        if(strrpos($this->query, "(") === false) {
+            throw new Exception("Hiçbir parantez açılmadıysa, parantez kapatamazsınız.");
+        }
+
+        $this->query = $this->query . ")";
 
         return $this;
     }
