@@ -2,6 +2,9 @@
 
 namespace Necdet\Neorm;
 
+use PDO;
+use Exception;
+
  /** Simple ORM (Object-Relational Mapping) query builder class.
  *
  * Provides a fluent interface to construct and execute SQL queries dynamically.
