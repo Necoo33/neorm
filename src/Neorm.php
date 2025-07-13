@@ -278,7 +278,7 @@ class Neorm {
             }
         } else {
             if($this->checkIfItsFunctionOrConstant($value)) {
-                $this->query = $this->query . $newChunk . "$column $mark $upper";
+                $this->query = $this->query . $newChunk . "$column $mark $value";
             } else {
                 $this->query = $this->query . $newChunk . "$column $mark ?";
                 $this->params[] = $value;
